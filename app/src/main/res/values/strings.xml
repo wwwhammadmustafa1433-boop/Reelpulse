@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">ReelPulse</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_discover">Discover</string>
+    <string name="nav_create">Create</string>
+    <string name="nav_algorithm">For You AI</string>
+    <string name="nav_profile">Profile</string>
+    <string name="tab_following">Following</string>
+    <string name="tab_for_you">For You</string>
+    <string name="action_follow">Follow</string>
+    <string name="action_following">Following</string>
+    <string name="action_like">Like</string>
+    <string name="action_comment">Comments</string>
+    <string name="action_save">Save</string>
+    <string name="action_share">Share</string>
+    <string name="empty_following_title">No followed creators yet</string>
+    <string name="empty_following_subtitle">Follow creators in For You or Discover to build your personal Following stream.</string>
+    <string name="algo_sheet_title">Why This Video?</string>
+    <string name="algo_lab_title">Recommendation Engine</string>
+    <string name="algo_lab_subtitle">Live scoring from your watch completion, likes, and follows</string>
+    <string name="create_title">Post a Short</string>
+    <string name="create_pick_video">Pick Video from Device</string>
+    <string name="create_publish">Publish to Feed</string>
+    <string name="profile_edit">Edit Profile</string>
+</resources>

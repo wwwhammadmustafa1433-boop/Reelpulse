@@ -1,0 +1,6 @@
+{
+  "name": "ReelPulse",
+  "description": "A short-form vertical video app with a personalized For You recommendation feed driven by watch history, likes, and creator follows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
