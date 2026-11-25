@@ -38,6 +38,15 @@ data class TagAffinity(
     val score: Float
 )
 
+data class TrendingTopic(
+    val tag: String,
+    val categoryHint: String,
+    val videoCount: Int,
+    val engagementScore: Long,
+    val isHot: Boolean = false,
+    val isCurated: Boolean = false
+)
+
 data class UserInterestProfile(
     val topCategories: List<CategoryAffinity>,
     val topTags: List<TagAffinity>,
@@ -150,7 +159,8 @@ class RecommendationEngine {
         followedCreatorIds: Set<String>,
         commentCounts: Map<String, Int>,
         explorationRate: Float = 0.15f,
-        nowMs: Long = System.currentTimeMillis()
+        nowMs: Long = System.currentTimeMillis(),
+        refreshSeed: Long = 0L
     ): List<ScoredVideo> {
         val profile = buildUserInterestProfile(
             videos = videos,
@@ -211,15 +221,27 @@ class RecommendationEngine {
                 0
             }
 
-            // Signal 5: Exploration & Freshness Boost (2..16)
-            val deterministicDiversity = (abs(video.id.hashCode() % 100) / 100f)
+            // Signal 5: Exploration & Freshness Boost (2..18)
+            val deterministicDiversity = if (refreshSeed == 0L) {
+                abs(video.id.hashCode() % 100) / 100f
+            } else {
+                val mixedHash = (video.id.hashCode().toLong() * 31L) xor
+                    (refreshSeed * 1_103_515_245L + 12_345L)
+                abs(mixedHash % 100L) / 100f
+            }
             val unseenBonus = if (watchesByVideo[video.id].isNullOrEmpty()) 1.0f else 0.2f
             val popularityBaseline = ((video.baseLikesCount / 45_000f).coerceIn(0f, 1f) * 8f)
+            val refreshJitter = if (refreshSeed > 0L) {
+                deterministicDiversity * (6f + explorationRate * 12f)
+            } else {
+                0f
+            }
             val explorationPoints = (
                 (explorationRate * 22f * deterministicDiversity * unseenBonus) +
                     (popularityBaseline * (1f - explorationRate * 0.5f)) +
+                    refreshJitter +
                     if (video.isUserCreated) 12f else 0f
-                ).roundToInt().coerceIn(2, 16)
+                ).roundToInt().coerceIn(2, 18)
 
             // Signal 6: Saturation / Already-Watched Penalty (0..-20)
             val latestWatch = watchesByVideo[video.id]?.maxByOrNull { it.watchedAtMs }
@@ -324,4 +346,111 @@ class RecommendationEngine {
             )
         )
     )
+
+    fun computeTrendingTopics(
+        videos: List<VideoEntity>,
+        likedIds: Set<String> = emptySet(),
+        commentCounts: Map<String, Int> = emptyMap(),
+        limit: Int = 48
+    ): List<TrendingTopic> {
+        data class MutableTagStats(
+            val displayTag: String,
+            val categoryVotes: MutableMap<String, Int> = mutableMapOf(),
+            var videoCount: Int = 0,
+            var engagementScore: Long = 0L,
+            var isCurated: Boolean = false
+        )
+
+        val statsByKey = linkedMapOf<String, MutableTagStats>()
+
+        curatedTrendingTopics.forEach { (curatedTag, categoryHint) ->
+            val normalizedKey = normalizeTagKey(curatedTag)
+            if (normalizedKey.isNotEmpty()) {
+                statsByKey[normalizedKey] = MutableTagStats(
+                    displayTag = curatedTag,
+                    categoryVotes = mutableMapOf(categoryHint to 1),
+                    isCurated = true
+                )
+            }
+        }
+
+        for (video in videos) {
+            val likes = video.baseLikesCount.toLong() + if (video.id in likedIds) 1L else 0L
+            val comments = maxOf(video.commentsCount, commentCounts[video.id] ?: 0).toLong()
+            val shares = video.sharesCount.toLong()
+            val videoPulse = likes + (shares * 3L) + (comments * 5L) + 100L
+
+            val seenInVideo = mutableSetOf<String>()
+            for (rawTag in video.tags) {
+                val cleanTag = normalizeTagDisplay(rawTag)
+                val key = normalizeTagKey(cleanTag)
+                if (key.isEmpty() || !seenInVideo.add(key)) continue
+
+                val existing = statsByKey[key]
+                if (existing == null) {
+                    statsByKey[key] = MutableTagStats(
+                        displayTag = cleanTag,
+                        categoryVotes = mutableMapOf(video.category to 1),
+                        videoCount = 1,
+                        engagementScore = videoPulse,
+                        isCurated = false
+                    )
+                } else {
+                    existing.videoCount += 1
+                    existing.engagementScore += videoPulse
+                    existing.categoryVotes[video.category] =
+                        (existing.categoryVotes[video.category] ?: 0) + 1
+                }
+            }
+        }
+
+        val sorted = statsByKey.values
+            .sortedWith(
+                compareByDescending<MutableTagStats> { it.videoCount > 0 }
+                    .thenByDescending { it.engagementScore }
+                    .thenByDescending { it.videoCount }
+                    .thenBy { it.displayTag.lowercase() }
+            )
+            .take(limit)
+
+        var hotAssigned = 0
+        return sorted.map { stats ->
+            val topCategory = stats.categoryVotes.maxByOrNull { it.value }?.key ?: "All"
+            val markHot = stats.videoCount > 0 && hotAssigned < 4
+            if (markHot) hotAssigned += 1
+            TrendingTopic(
+                tag = stats.displayTag,
+                categoryHint = topCategory,
+                videoCount = stats.videoCount,
+                engagementScore = stats.engagementScore,
+                isHot = markHot,
+                isCurated = stats.isCurated
+            )
+        }
+    }
+
+    companion object {
+        val curatedTrendingTopics: List<Pair<String, String>> = listOf(
+            "#NeonVibes" to "Dance",
+            "#DeskSetup" to "Tech",
+            "#MidnightChef" to "Food",
+            "#SynthWave" to "Music",
+            "#GoldenHour" to "Travel",
+            "#CoreFlow" to "Fitness",
+            "#ShaderArt" to "Art",
+            "#BehindTheScenes" to "All",
+            "#QuickTips" to "Tech",
+            "#POV" to "Travel"
+        )
+
+        fun normalizeTagDisplay(raw: String): String {
+            val trimmed = raw.trim().replace(" ", "")
+            if (trimmed.isEmpty()) return ""
+            return if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+        }
+
+        fun normalizeTagKey(raw: String): String {
+            return raw.trim().removePrefix("#").lowercase()
+        }
+    }
 }

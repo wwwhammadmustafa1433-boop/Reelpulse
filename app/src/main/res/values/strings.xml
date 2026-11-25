@@ -18,8 +18,24 @@
     <string name="algo_sheet_title">Why This Video?</string>
     <string name="algo_lab_title">Recommendation Engine</string>
     <string name="algo_lab_subtitle">Live scoring from your watch completion, likes, and follows</string>
-    <string name="create_title">Post a Short</string>
+    <string name="create_title">Upload Video</string>
     <string name="create_pick_video">Pick Video from Device</string>
-    <string name="create_publish">Publish to Feed</string>
+    <string name="create_publish">Upload &amp; Post</string>
     <string name="profile_edit">Edit Profile</string>
+    <string name="gemini_chat_title">Gemini Chat</string>
+    <string name="gemini_chat_subtitle">Powered by Gemini 3.8 Flash</string>
+    <string name="gemini_chat_placeholder">Ask Gemini anything...</string>
+    <string name="gemini_chat_new">New Chat</string>
+    <string name="live_title">LIVE</string>
+    <string name="go_live">Go LIVE</string>
+    <string name="feed_reloading_for_you">Reloading For You queue…</string>
+    <string name="feed_for_you_updated">For You queue updated</string>
+    <string name="block_user">Block User</string>
+    <string name="unblock_user">Unblock</string>
+    <string name="blocked_users_title">Blocked Users</string>
+    <string name="user_blocked_title">Blocked %1$s</string>
+    <string name="user_blocked_description">Their videos and live streams are hidden from your For You, Following, and Discover feeds.</string>
+    <string name="trending_topics_title">Trending Topics</string>
+    <string name="trending_topics_subtitle">Tap a tag to explore clips</string>
+    <string name="create_trending_topics_label">Trending Topics (optional)</string>
 </resources>

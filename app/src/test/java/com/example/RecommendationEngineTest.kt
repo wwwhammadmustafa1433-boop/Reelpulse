@@ -75,4 +75,66 @@ class RecommendationEngineTest {
         assertEquals(4, stages.size)
         assertEquals("ACTIVE NOW", stages.first().status)
     }
+
+    @Test
+    fun refreshSeedReloadsAndDiversifiesQueue() {
+        val initialOrder = engine.rankForYouFeed(
+            videos = videos,
+            watchHistory = emptyList(),
+            likedIds = emptySet(),
+            savedIds = emptySet(),
+            followedCreatorIds = emptySet(),
+            commentCounts = emptyMap(),
+            explorationRate = 0.25f,
+            nowMs = 1_000_000_000L,
+            refreshSeed = 0L
+        ).map { it.video.id }
+
+        val refreshedOrders = (1L..5L).map { seed ->
+            engine.rankForYouFeed(
+                videos = videos,
+                watchHistory = emptyList(),
+                likedIds = emptySet(),
+                savedIds = emptySet(),
+                followedCreatorIds = emptySet(),
+                commentCounts = emptyMap(),
+                explorationRate = 0.25f,
+                nowMs = 1_000_000_000L,
+                refreshSeed = seed
+            ).map { it.video.id }
+        }
+
+        assertEquals(videos.size, initialOrder.size)
+        assertTrue(refreshedOrders.any { it != initialOrder })
+    }
+
+    @Test
+    fun computeTrendingTopicsRanksActiveTagsAndIncludesCuratedTopics() {
+        val customVideo = videos.first().copy(
+            id = "vid_custom_trending",
+            tagsCsv = "#NeonVibes,#synthwave,#neonvibes",
+            baseLikesCount = 120_000,
+            sharesCount = 5_000,
+            isUserCreated = true
+        )
+
+        val topics = engine.computeTrendingTopics(
+            videos = videos + customVideo,
+            likedIds = setOf(customVideo.id),
+            commentCounts = mapOf(customVideo.id to 42),
+            limit = 48
+        )
+
+        assertTrue(topics.isNotEmpty())
+        val neonVibes = topics.firstOrNull { it.tag.equals("#NeonVibes", ignoreCase = true) }
+        assertTrue(neonVibes != null)
+        assertEquals(1, neonVibes?.videoCount)
+        assertEquals(true, neonVibes?.isHot)
+
+        val synthwave = topics.firstOrNull { it.tag.equals("#synthwave", ignoreCase = true) }
+        assertTrue(synthwave != null)
+        assertEquals(3, synthwave?.videoCount)
+
+        assertTrue(topics.any { it.isCurated && it.videoCount == 0 })
+    }
 }

@@ -22,6 +22,7 @@ data class VideoEntity(
     val sharesCount: Int,
     val accentHex: Long,
     val isUserCreated: Boolean = false,
+    val filterId: String = "normal",
     val createdAtMs: Long = System.currentTimeMillis()
 ) {
     val tags: List<String>

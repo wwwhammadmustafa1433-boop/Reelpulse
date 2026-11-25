@@ -25,11 +25,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -46,10 +52,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.R
+import com.example.recommendation.RecommendationEngine
 import com.example.recommendation.ScoredVideo
+import com.example.recommendation.TrendingTopic
 import com.example.ui.components.CreatorAvatar
 import com.example.ui.components.formatCompactCount
 import com.example.ui.theme.PulseCrimson
@@ -60,6 +71,7 @@ import com.example.ui.theme.PulseSurface
 import com.example.ui.theme.PulseSurfaceElevated
 import com.example.ui.theme.PulseTextPrimary
 import com.example.ui.theme.PulseTextSecondary
+import com.example.ui.viewmodel.CreatorSummary
 import com.example.ui.viewmodel.ReelPulseUiState
 
 private val discoverCategories = listOf("All", "Tech", "Dance", "Food", "Travel", "Music", "Fitness", "Art")
@@ -69,19 +81,44 @@ fun DiscoverScreen(
     uiState: ReelPulseUiState,
     onSearchChange: (String) -> Unit,
     onCategorySelect: (String) -> Unit,
+    onTrendingTagSelect: (String?) -> Unit = {},
     onVideoClick: (String) -> Unit,
+    onCreatorClick: (CreatorSummary) -> Unit = {},
+    onCreateWithTag: (String) -> Unit = {},
+    onOpenGeminiChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val query = uiState.searchQuery.trim().lowercase()
+    val queryNormalizedTag = RecommendationEngine.normalizeTagKey(query)
+    val selectedTag = uiState.selectedTrendingTag
+    val selectedTagKey = selectedTag?.let { RecommendationEngine.normalizeTagKey(it) }
+
+    val matchingTrendingSuggestions = if (query.isEmpty()) {
+        emptyList()
+    } else {
+        uiState.trendingTopics.filter { topic ->
+            val topicKey = RecommendationEngine.normalizeTagKey(topic.tag)
+            topicKey.contains(queryNormalizedTag) ||
+                topic.categoryHint.lowercase().contains(query)
+        }.take(8)
+    }
+
     val filteredVideos = uiState.allScoredVideos.filter { item ->
         val matchesCategory = uiState.selectedCategoryFilter == "All" ||
             item.video.category.equals(uiState.selectedCategoryFilter, ignoreCase = true)
+        val matchesSelectedTag = selectedTagKey == null ||
+            item.video.tags.any { RecommendationEngine.normalizeTagKey(it) == selectedTagKey }
         val matchesQuery = query.isEmpty() ||
             item.video.title.lowercase().contains(query) ||
             item.video.caption.lowercase().contains(query) ||
             item.video.tagsCsv.lowercase().contains(query) ||
+            (queryNormalizedTag.isNotEmpty() && item.video.tags.any {
+                RecommendationEngine.normalizeTagKey(it).contains(queryNormalizedTag)
+            }) ||
+            item.video.category.lowercase().contains(query) ||
+            item.video.creatorName.lowercase().contains(query) ||
             item.video.creatorHandle.lowercase().contains(query)
-        matchesCategory && matchesQuery
+        matchesCategory && matchesSelectedTag && matchesQuery
     }
 
     Box(
@@ -98,24 +135,60 @@ fun DiscoverScreen(
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "Discover",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = PulseTextPrimary
-            )
-            Text(
-                text = "Explore creators, sounds & personalized picks",
-                style = MaterialTheme.typography.bodySmall,
-                color = PulseTextSecondary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Discover",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PulseTextPrimary
+                    )
+                    Text(
+                        text = "Explore creators, sounds & personalized picks",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PulseTextSecondary
+                    )
+                }
+                Surface(
+                    onClick = onOpenGeminiChat,
+                    shape = RoundedCornerShape(50),
+                    color = PulseCyan.copy(alpha = 0.14f),
+                    modifier = Modifier
+                        .height(48.dp)
+                        .border(1.dp, PulseCyan.copy(alpha = 0.45f), RoundedCornerShape(50))
+                        .testTag("discover_gemini_chat_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = "Open Gemini Chat",
+                            tint = PulseCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Gemini Chat",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = PulseCyan
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Search shorts, #tags, or @creators") },
+                placeholder = { Text("Search by #trending tag, topic, or @creator") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Filled.Search,
@@ -124,11 +197,14 @@ fun DiscoverScreen(
                     )
                 },
                 trailingIcon = {
-                    if (uiState.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { onSearchChange("") }) {
+                    if (uiState.searchQuery.isNotEmpty() || selectedTag != null) {
+                        IconButton(onClick = {
+                            onSearchChange("")
+                            onTrendingTagSelect(null)
+                        }) {
                             Icon(
                                 imageVector = Icons.Filled.Clear,
-                                contentDescription = "Clear search",
+                                contentDescription = "Clear search and tag filter",
                                 tint = PulseTextSecondary
                             )
                         }
@@ -146,6 +222,61 @@ fun DiscoverScreen(
                     .fillMaxWidth()
                     .testTag("discover_search_field")
             )
+
+            if (matchingTrendingSuggestions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.testTag("discover_tag_suggestions_row")
+                ) {
+                    items(
+                        items = matchingTrendingSuggestions,
+                        key = { "suggest_${RecommendationEngine.normalizeTagKey(it.tag)}" }
+                    ) { topic ->
+                        val topicKey = RecommendationEngine.normalizeTagKey(topic.tag)
+                        val isSelected = selectedTagKey == topicKey
+                        Surface(
+                            onClick = { onTrendingTagSelect(topic.tag) },
+                            shape = RoundedCornerShape(50),
+                            color = if (isSelected) PulseCyan.copy(alpha = 0.24f) else PulseSurfaceElevated,
+                            modifier = Modifier
+                                .height(40.dp)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) PulseCyan else PulseCyan.copy(alpha = 0.45f),
+                                    RoundedCornerShape(50)
+                                )
+                                .testTag("search_tag_suggestion_$topicKey")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Tag,
+                                    contentDescription = null,
+                                    tint = PulseCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = topic.tag.removePrefix("#"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = PulseCyan
+                                )
+                                if (topic.videoCount > 0) {
+                                    Text(
+                                        text = "(${topic.videoCount})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = PulseTextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -183,7 +314,148 @@ fun DiscoverScreen(
                 contentPadding = PaddingValues(top = 10.dp, bottom = 24.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (uiState.interestProfile.topTags.isNotEmpty() && query.isEmpty()) {
+                if (uiState.trendingTopics.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.testTag("discover_trending_topics_section")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                        contentDescription = null,
+                                        tint = PulseCrimson,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = stringResource(R.string.trending_topics_title),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = PulseTextPrimary
+                                        )
+                                        Text(
+                                            text = stringResource(R.string.trending_topics_subtitle),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = PulseTextSecondary
+                                        )
+                                    }
+                                }
+                                if (selectedTag != null) {
+                                    Surface(
+                                        onClick = { onTrendingTagSelect(null) },
+                                        shape = RoundedCornerShape(50),
+                                        color = PulseCyan.copy(alpha = 0.16f),
+                                        modifier = Modifier
+                                            .border(1.dp, PulseCyan.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                            .testTag("clear_trending_tag_filter")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = selectedTag,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = PulseCyan
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Filled.Clear,
+                                                contentDescription = "Clear tag filter",
+                                                tint = PulseCyan,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(
+                                    items = uiState.trendingTopics,
+                                    key = { RecommendationEngine.normalizeTagKey(it.tag) }
+                                ) { topic ->
+                                    val topicKey = RecommendationEngine.normalizeTagKey(topic.tag)
+                                    TrendingTopicCard(
+                                        topic = topic,
+                                        isSelected = selectedTagKey == topicKey,
+                                        onClick = { onTrendingTagSelect(topic.tag) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val visibleCreators = uiState.knownCreators.filter { creator ->
+                    creator.creatorId !in uiState.blockedCreatorIds &&
+                        (query.isEmpty() ||
+                            creator.creatorName.lowercase().contains(query) ||
+                            creator.creatorHandle.lowercase().contains(query))
+                }
+                if (visibleCreators.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Creators",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PulseTextPrimary
+                            )
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(visibleCreators, key = { it.creatorId }) { creator ->
+                                    Surface(
+                                        onClick = { onCreatorClick(creator) },
+                                        shape = RoundedCornerShape(50),
+                                        color = PulseSurfaceElevated,
+                                        modifier = Modifier
+                                            .height(48.dp)
+                                            .border(1.dp, PulseOutline, RoundedCornerShape(50))
+                                            .testTag("discover_creator_${creator.creatorId}")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(start = 6.dp, end = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            CreatorAvatar(
+                                                avatarKey = creator.creatorAvatarKey,
+                                                displayName = creator.creatorName,
+                                                size = 34.dp,
+                                                borderColor = PulseCyan
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = creator.creatorName,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = PulseTextPrimary
+                                                )
+                                                Text(
+                                                    text = creator.creatorHandle,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = PulseTextSecondary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (uiState.interestProfile.topTags.isNotEmpty() && query.isEmpty() && selectedTag == null) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
@@ -205,7 +477,7 @@ fun DiscoverScreen(
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(uiState.interestProfile.topTags) { tag ->
                                     Surface(
-                                        onClick = { onSearchChange(tag.tag) },
+                                        onClick = { onTrendingTagSelect(tag.tag) },
                                         shape = RoundedCornerShape(50),
                                         color = PulseCyan.copy(alpha = 0.14f),
                                         modifier = Modifier.border(
@@ -227,31 +499,93 @@ fun DiscoverScreen(
                     }
                 }
 
+                if (selectedTag != null || query.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val summary = buildString {
+                                append("${filteredVideos.size} ")
+                                append(if (filteredVideos.size == 1) "video" else "videos")
+                                if (selectedTag != null) {
+                                    append(" tagged $selectedTag")
+                                }
+                                if (query.isNotEmpty()) {
+                                    append(" matching \"${uiState.searchQuery.trim()}\"")
+                                }
+                            }
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PulseCyan
+                            )
+                        }
+                    }
+                }
+
                 if (filteredVideos.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 48.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .padding(vertical = 40.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "No matching clips found",
+                                text = if (selectedTag != null) {
+                                    "No videos tagged $selectedTag yet"
+                                } else {
+                                    "No matching clips found"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 color = PulseTextPrimary
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Try clearing your search or choosing another category.",
+                                text = if (selectedTag != null) {
+                                    "Be the first creator to post a short with $selectedTag."
+                                } else {
+                                    "Try clearing your search or choosing another trending tag."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = PulseTextSecondary
+                                color = PulseTextSecondary,
+                                textAlign = TextAlign.Center
                             )
+                            if (selectedTag != null) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Button(
+                                    onClick = { onCreateWithTag(selectedTag) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = PulseCrimson,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .testTag("post_with_trending_tag_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.size(6.dp))
+                                    Text(
+                                        text = "Post with $selectedTag",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
                     items(filteredVideos, key = { it.video.id }) { item ->
                         DiscoverVideoCard(
                             scoredVideo = item,
+                            highlightedTagKey = selectedTagKey ?: queryNormalizedTag.takeIf { it.isNotEmpty() },
                             onClick = { onVideoClick(item.video.id) }
                         )
                     }
@@ -262,8 +596,73 @@ fun DiscoverScreen(
 }
 
 @Composable
+private fun TrendingTopicCard(
+    topic: TrendingTopic,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val topicKey = RecommendationEngine.normalizeTagKey(topic.tag)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = when {
+            isSelected -> PulseCyan.copy(alpha = 0.22f)
+            topic.isHot -> PulseCrimson.copy(alpha = 0.13f)
+            else -> PulseSurfaceElevated
+        },
+        modifier = Modifier
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = when {
+                    isSelected -> PulseCyan
+                    topic.isHot -> PulseCrimson.copy(alpha = 0.45f)
+                    else -> PulseOutline
+                },
+                shape = RoundedCornerShape(14.dp)
+            )
+            .testTag("trending_topic_chip_$topicKey")
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                if (topic.isHot) {
+                    Icon(
+                        imageVector = Icons.Filled.LocalFireDepartment,
+                        contentDescription = "Hot trending topic",
+                        tint = if (isSelected) PulseCyan else PulseCrimson,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Text(
+                    text = topic.tag,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSelected) PulseCyan else PulseTextPrimary
+                )
+            }
+            Text(
+                text = if (topic.videoCount > 0) {
+                    val clipLabel = if (topic.videoCount == 1) "1 clip" else "${topic.videoCount} clips"
+                    "$clipLabel • ${formatCompactCount(topic.engagementScore.toInt())} pulse"
+                } else {
+                    "${topic.categoryHint} • Be first"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = PulseTextSecondary
+            )
+        }
+    }
+}
+
+@Composable
 private fun DiscoverVideoCard(
     scoredVideo: ScoredVideo,
+    highlightedTagKey: String?,
     onClick: () -> Unit
 ) {
     val video = scoredVideo.video
@@ -335,6 +734,37 @@ private fun DiscoverVideoCard(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (video.tags.isNotEmpty()) {
+                val orderedTags = if (highlightedTagKey != null) {
+                    video.tags.sortedByDescending {
+                        RecommendationEngine.normalizeTagKey(it).contains(highlightedTagKey)
+                    }
+                } else {
+                    video.tags
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    orderedTags.take(2).forEach { tag ->
+                        val isHit = highlightedTagKey != null &&
+                            RecommendationEngine.normalizeTagKey(tag).contains(highlightedTagKey)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isHit) PulseCyan.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.48f)
+                        ) {
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isHit) PulseCyan else Color.White.copy(alpha = 0.85f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleSmall,

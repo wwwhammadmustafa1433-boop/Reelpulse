@@ -1,0 +1,345 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated ReelPulse user account profile stored securely under the owner's UID. Clients must write FieldValue.serverTimestamp() for createdAt and updatedAt.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the account owner."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User's full name or display username."
+        },
+        "handle": {
+          "type": "string",
+          "description": "Creator handle prefixed with @."
+        },
+        "email": {
+          "type": "string",
+          "description": "Authenticated email address from Firebase Auth."
+        },
+        "mobileNumber": {
+          "type": "string",
+          "description": "User's mobile phone number."
+        },
+        "bio": {
+          "type": "string",
+          "description": "Short creator biography."
+        },
+        "accountVisibility": {
+          "type": "string",
+          "enum": ["personal", "public"],
+          "description": "Account privacy mode chosen by the user: personal (private) or public."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned account creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned last profile update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "handle",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "VideoMetadata": {
+      "title": "VideoMetadata",
+      "description": "Metadata for a short video recorded in-app or selected from the device gallery and posted by the signed-in user. Clients must write FieldValue.serverTimestamp() for createdAt and updatedAt.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the creator who posted the video."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short title for the posted video."
+        },
+        "caption": {
+          "type": "string",
+          "description": "User-entered caption describing the video."
+        },
+        "category": {
+          "type": "string",
+          "description": "Content category used by the For You recommendation engine."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Up to 10 hashtags associated with the video."
+        },
+        "soundTitle": {
+          "type": "string",
+          "description": "Sound or audio track credit."
+        },
+        "videoUri": {
+          "type": "string",
+          "description": "Local file URI, gallery content URI, or sample stream URI of the video."
+        },
+        "filterId": {
+          "type": "string",
+          "description": "Identifier of the camera/video filter preset applied to the clip."
+        },
+        "filterName": {
+          "type": "string",
+          "description": "Human-readable name of the applied camera filter."
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": ["camera", "gallery", "sample"],
+          "description": "How the video was captured or selected."
+        },
+        "durationMs": {
+          "type": "integer",
+          "description": "Video duration in milliseconds."
+        },
+        "creatorName": {
+          "type": "string",
+          "description": "Creator display name at post time."
+        },
+        "creatorHandle": {
+          "type": "string",
+          "description": "Creator handle at post time."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned post timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "title",
+        "caption",
+        "category",
+        "tags",
+        "soundTitle",
+        "videoUri",
+        "filterId",
+        "filterName",
+        "sourceType",
+        "durationMs",
+        "creatorName",
+        "creatorHandle",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BlockedUser": {
+      "title": "BlockedUser",
+      "description": "Blocked creator record stored under the blocking user's UID so blocked creators' content is hidden from their feed. Clients must write FieldValue.serverTimestamp() for createdAt.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user who initiated the block."
+        },
+        "blockedCreatorId": {
+          "type": "string",
+          "description": "Identifier of the blocked creator or user."
+        },
+        "blockedCreatorName": {
+          "type": "string",
+          "description": "Display name of the blocked creator at block time."
+        },
+        "blockedCreatorHandle": {
+          "type": "string",
+          "description": "@handle of the blocked creator."
+        },
+        "blockedCreatorAvatarKey": {
+          "type": "string",
+          "description": "Avatar key for rendering the blocked user in management lists."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned timestamp when the user was blocked (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "blockedCreatorId",
+        "blockedCreatorName",
+        "blockedCreatorHandle",
+        "blockedCreatorAvatarKey",
+        "createdAt"
+      ]
+    },
+    "LiveStreamSession": {
+      "title": "LiveStreamSession",
+      "description": "Real-time live broadcast session hosted by an authenticated ReelPulse creator. Clients must write FieldValue.serverTimestamp() for startedAt, updatedAt, and endedAt.",
+      "type": "object",
+      "properties": {
+        "hostUserId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the creator hosting the live stream."
+        },
+        "hostName": {
+          "type": "string",
+          "description": "Host display name."
+        },
+        "hostHandle": {
+          "type": "string",
+          "description": "Host @handle."
+        },
+        "title": {
+          "type": "string",
+          "description": "Live broadcast title."
+        },
+        "category": {
+          "type": "string",
+          "description": "Broadcast category."
+        },
+        "filterId": {
+          "type": "string",
+          "description": "Active camera filter preset ID."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["live", "ended"],
+          "description": "Broadcast lifecycle state."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "personal"],
+          "description": "Stream visibility matching the host account setting."
+        },
+        "viewerCount": {
+          "type": "integer",
+          "description": "Active viewer count."
+        },
+        "likeCount": {
+          "type": "integer",
+          "description": "Accumulated live reaction hearts."
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned stream start timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned last update timestamp (FieldValue.serverTimestamp())."
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional server-assigned stream end timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "hostUserId",
+        "hostName",
+        "hostHandle",
+        "title",
+        "category",
+        "filterId",
+        "status",
+        "visibility",
+        "viewerCount",
+        "likeCount",
+        "startedAt",
+        "updatedAt"
+      ]
+    },
+    "LiveChatMessage": {
+      "title": "LiveChatMessage",
+      "description": "Real-time viewer or host chat message inside an active live broadcast. Clients must write FieldValue.serverTimestamp() for createdAt.",
+      "type": "object",
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "description": "Parent live stream document ID."
+        },
+        "streamHostId": {
+          "type": "string",
+          "description": "Denormalized host UID from parent stream for secure subcollection queries."
+        },
+        "streamVisibility": {
+          "type": "string",
+          "enum": ["public", "personal"],
+          "description": "Denormalized visibility from parent stream for secure subcollection queries."
+        },
+        "senderId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the message sender."
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Sender display name."
+        },
+        "senderHandle": {
+          "type": "string",
+          "description": "Sender @handle."
+        },
+        "text": {
+          "type": "string",
+          "description": "Live chat message text."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned message timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "streamId",
+        "streamHostId",
+        "streamVisibility",
+        "senderId",
+        "senderName",
+        "senderHandle",
+        "text",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Owner-isolated user account document containing profile details and PII (email, mobileNumber)."
+    },
+    "/users/{userId}/videos/{videoId}": {
+      "schema": {
+        "$ref": "#/entities/VideoMetadata"
+      },
+      "description": "Owner-isolated uploaded short video metadata documents created from the in-app camera or device gallery."
+    },
+    "/users/{userId}/blocked_users/{blockedUserId}": {
+      "schema": {
+        "$ref": "#/entities/BlockedUser"
+      },
+      "description": "Owner-isolated list of creators/users blocked by the account owner."
+    },
+    "/live_streams/{streamId}": {
+      "schema": {
+        "$ref": "#/entities/LiveStreamSession"
+      },
+      "description": "Active and ended live broadcast sessions. Public streams are discoverable by signed-in users; personal streams are restricted to the host."
+    },
+    "/live_streams/{streamId}/chat/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/LiveChatMessage"
+      },
+      "description": "Real-time chat messages posted inside a live stream room."
+    }
+  }
+}

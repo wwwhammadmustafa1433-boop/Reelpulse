@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.TrendingUp
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.testTag
@@ -61,6 +63,7 @@ fun AlgorithmLabScreen(
     uiState: ReelPulseUiState,
     onExplorationRateChange: (Float) -> Unit,
     onResetSignals: () -> Unit,
+    onOpenGeminiChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val profile = uiState.interestProfile
@@ -124,6 +127,66 @@ fun AlgorithmLabScreen(
                         )
                         Spacer(modifier = Modifier.size(4.dp))
                         Text("Reset", color = PulseCrimson)
+                    }
+                }
+            }
+
+            // Gemini Chat Card
+            item {
+                Surface(
+                    onClick = onOpenGeminiChat,
+                    shape = RoundedCornerShape(18.dp),
+                    color = PulseSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(
+                            width = 1.dp,
+                            brush = Brush.horizontalGradient(listOf(PulseCyan, PulseCrimson)),
+                            shape = RoundedCornerShape(18.dp)
+                        )
+                        .testTag("algo_open_gemini_chat_card")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    Brush.linearGradient(listOf(PulseCyan, PulseCrimson)),
+                                    RoundedCornerShape(12.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.gemini_chat_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = PulseTextPrimary
+                            )
+                            Text(
+                                text = "Brainstorm hooks, captions, and ideas with Gemini 3.8 Flash",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PulseTextSecondary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Open Gemini Chat",
+                            tint = PulseCyan
+                        )
                     }
                 }
             }

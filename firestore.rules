@@ -1,0 +1,368 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Deny all reads/writes by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidUserAccount(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.displayName is string &&
+             data.displayName.size() >= 2 &&
+             data.displayName.size() <= 50 &&
+             data.handle is string &&
+             data.handle.size() >= 2 &&
+             data.handle.size() <= 32 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             (!('mobileNumber' in data) || (data.mobileNumber is string && data.mobileNumber.size() >= 7 && data.mobileNumber.size() <= 20)) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 200)) &&
+             (!('accountVisibility' in data) || (data.accountVisibility is string && data.accountVisibility in ['personal', 'public'])) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidVideoMetadata(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.title is string &&
+             data.title.size() >= 1 &&
+             data.title.size() <= 100 &&
+             data.caption is string &&
+             data.caption.size() >= 1 &&
+             data.caption.size() <= 500 &&
+             data.category is string &&
+             data.category.size() >= 1 &&
+             data.category.size() <= 32 &&
+             data.tags is list &&
+             data.tags.size() <= 10 &&
+             (data.tags.size() == 0 || data.tags[0] is string) &&
+             data.soundTitle is string &&
+             data.soundTitle.size() >= 1 &&
+             data.soundTitle.size() <= 100 &&
+             data.videoUri is string &&
+             data.videoUri.size() >= 1 &&
+             data.videoUri.size() <= 500 &&
+             data.filterId is string &&
+             data.filterId.size() >= 1 &&
+             data.filterId.size() <= 32 &&
+             data.filterName is string &&
+             data.filterName.size() >= 1 &&
+             data.filterName.size() <= 32 &&
+             data.sourceType is string &&
+             data.sourceType in ['camera', 'gallery', 'sample'] &&
+             data.durationMs is int &&
+             data.durationMs > 0 &&
+             data.durationMs <= 600000 &&
+             data.creatorName is string &&
+             data.creatorName.size() >= 1 &&
+             data.creatorName.size() <= 50 &&
+             data.creatorHandle is string &&
+             data.creatorHandle.size() >= 1 &&
+             data.creatorHandle.size() <= 32 &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidBlockedUser(data, blockedUserId) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.blockedCreatorId is string &&
+             data.blockedCreatorId == blockedUserId &&
+             data.blockedCreatorId != request.auth.uid &&
+             data.blockedCreatorId != 'local_user' &&
+             data.blockedCreatorName is string &&
+             data.blockedCreatorName.size() >= 1 &&
+             data.blockedCreatorName.size() <= 50 &&
+             data.blockedCreatorHandle is string &&
+             data.blockedCreatorHandle.size() >= 1 &&
+             data.blockedCreatorHandle.size() <= 32 &&
+             data.blockedCreatorAvatarKey is string &&
+             data.blockedCreatorAvatarKey.size() >= 1 &&
+             data.blockedCreatorAvatarKey.size() <= 32 &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time;
+    }
+
+    // Owner-isolated user account profiles (strict PII protection)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'handle', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'handle', 'email', 'mobileNumber', 'bio', 'accountVisibility', 'createdAt', 'updatedAt']) &&
+                       isValidUserAccount(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserAccount(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'handle', 'email', 'mobileNumber', 'bio', 'accountVisibility', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      // Owner-isolated uploaded video metadata subcollection
+      match /videos/{videoId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(videoId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(videoId) &&
+                         request.auth.uid == userId &&
+                         incoming().keys().hasAll([
+                           'userId', 'title', 'caption', 'category', 'tags',
+                           'soundTitle', 'videoUri', 'filterId', 'filterName',
+                           'sourceType', 'durationMs', 'creatorName', 'creatorHandle',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'title', 'caption', 'category', 'tags',
+                           'soundTitle', 'videoUri', 'filterId', 'filterName',
+                           'sourceType', 'durationMs', 'creatorName', 'creatorHandle',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidVideoMetadata(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(videoId) &&
+                         request.auth.uid == userId &&
+                         isValidVideoMetadata(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'caption', 'category', 'tags',
+                           'soundTitle', 'filterId', 'filterName', 'updatedAt'
+                         ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(videoId) && request.auth.uid == userId;
+      }
+
+      // Owner-isolated blocked users subcollection
+      match /blocked_users/{blockedUserId} {
+        allow get: if isSignedIn() &&
+                      isValidId(userId) &&
+                      isValidId(blockedUserId) &&
+                      request.auth.uid == userId;
+
+        allow list: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(blockedUserId) &&
+                         request.auth.uid == userId &&
+                         incoming().keys().hasAll([
+                           'userId', 'blockedCreatorId', 'blockedCreatorName',
+                           'blockedCreatorHandle', 'blockedCreatorAvatarKey', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'blockedCreatorId', 'blockedCreatorName',
+                           'blockedCreatorHandle', 'blockedCreatorAvatarKey', 'createdAt'
+                         ]) &&
+                         isValidBlockedUser(incoming(), blockedUserId);
+
+        allow update: if false;
+
+        allow delete: if isSignedIn() &&
+                         isValidId(userId) &&
+                         isValidId(blockedUserId) &&
+                         request.auth.uid == userId;
+      }
+    }
+
+    function isValidLiveStreamSession(data) {
+      return data.hostUserId is string &&
+             data.hostUserId.size() >= 1 &&
+             data.hostUserId.size() <= 128 &&
+             data.hostName is string &&
+             data.hostName.size() >= 1 &&
+             data.hostName.size() <= 50 &&
+             data.hostHandle is string &&
+             data.hostHandle.size() >= 1 &&
+             data.hostHandle.size() <= 32 &&
+             data.title is string &&
+             data.title.size() >= 1 &&
+             data.title.size() <= 100 &&
+             data.category is string &&
+             data.category.size() >= 1 &&
+             data.category.size() <= 32 &&
+             data.filterId is string &&
+             data.filterId.size() >= 1 &&
+             data.filterId.size() <= 32 &&
+             data.status is string &&
+             data.status in ['live', 'ended'] &&
+             data.visibility is string &&
+             data.visibility in ['public', 'personal'] &&
+             data.viewerCount is int &&
+             data.viewerCount >= 0 &&
+             data.viewerCount <= 1000000 &&
+             data.likeCount is int &&
+             data.likeCount >= 0 &&
+             data.likeCount <= 100000000 &&
+             data.startedAt is timestamp &&
+             data.startedAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time &&
+             (!('endedAt' in data) || (data.endedAt is timestamp && data.endedAt <= request.time));
+    }
+
+    function isValidLiveChatMessage(data, streamId) {
+      return data.streamId is string &&
+             data.streamId == streamId &&
+             data.streamHostId is string &&
+             data.streamHostId.size() >= 1 &&
+             data.streamHostId.size() <= 128 &&
+             data.streamVisibility is string &&
+             data.streamVisibility in ['public', 'personal'] &&
+             data.senderId is string &&
+             data.senderId == request.auth.uid &&
+             data.senderName is string &&
+             data.senderName.size() >= 1 &&
+             data.senderName.size() <= 50 &&
+             data.senderHandle is string &&
+             data.senderHandle.size() >= 1 &&
+             data.senderHandle.size() <= 32 &&
+             data.text is string &&
+             data.text.size() >= 1 &&
+             data.text.size() <= 250 &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time;
+    }
+
+    function getLiveStream(streamId) {
+      return get(/databases/$(database)/documents/live_streams/$(streamId));
+    }
+
+    function liveStreamExists(streamId) {
+      return exists(/databases/$(database)/documents/live_streams/$(streamId));
+    }
+
+    // Live broadcast rooms: public rooms discoverable by signed-in users; personal rooms owner-only
+    match /live_streams/{streamId} {
+      allow get: if isSignedIn() &&
+                    isValidId(streamId) &&
+                    (existing().visibility == 'public' || existing().hostUserId == request.auth.uid);
+
+      allow list: if isSignedIn() &&
+                     (existing().visibility == 'public' || existing().hostUserId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(streamId) &&
+                       incoming().hostUserId == request.auth.uid &&
+                       incoming().status == 'live' &&
+                       incoming().keys().hasAll([
+                         'hostUserId', 'hostName', 'hostHandle', 'title', 'category',
+                         'filterId', 'status', 'visibility', 'viewerCount', 'likeCount',
+                         'startedAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'hostUserId', 'hostName', 'hostHandle', 'title', 'category',
+                         'filterId', 'status', 'visibility', 'viewerCount', 'likeCount',
+                         'startedAt', 'updatedAt', 'endedAt'
+                       ]) &&
+                       isValidLiveStreamSession(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(streamId) &&
+                       isValidLiveStreamSession(incoming()) &&
+                       existing().status == 'live' &&
+                       incoming().hostUserId == existing().hostUserId &&
+                       incoming().hostName == existing().hostName &&
+                       incoming().hostHandle == existing().hostHandle &&
+                       incoming().visibility == existing().visibility &&
+                       incoming().startedAt == existing().startedAt &&
+                       (
+                         (
+                           request.auth.uid == existing().hostUserId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'title', 'category', 'filterId', 'status', 'endedAt', 'updatedAt'
+                           ])
+                         ) ||
+                         (
+                           (existing().visibility == 'public' || existing().hostUserId == request.auth.uid) &&
+                           incoming().likeCount >= existing().likeCount &&
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'likeCount', 'viewerCount', 'updatedAt'
+                           ])
+                         )
+                       );
+
+      allow delete: if isSignedIn() &&
+                       isValidId(streamId) &&
+                       existing().hostUserId == request.auth.uid;
+
+      match /chat/{messageId} {
+        allow get: if isSignedIn() &&
+                      isValidId(streamId) &&
+                      isValidId(messageId) &&
+                      liveStreamExists(streamId) &&
+                      (getLiveStream(streamId).data.visibility == 'public' ||
+                       getLiveStream(streamId).data.hostUserId == request.auth.uid);
+
+        allow list: if isSignedIn() &&
+                       isValidId(streamId) &&
+                       (existing().streamVisibility == 'public' ||
+                        existing().streamHostId == request.auth.uid);
+
+        allow create: if isSignedIn() &&
+                         isValidId(streamId) &&
+                         isValidId(messageId) &&
+                         isValidLiveChatMessage(incoming(), streamId) &&
+                         incoming().keys().hasAll([
+                           'streamId', 'streamHostId', 'streamVisibility',
+                           'senderId', 'senderName', 'senderHandle', 'text', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'streamId', 'streamHostId', 'streamVisibility',
+                           'senderId', 'senderName', 'senderHandle', 'text', 'createdAt'
+                         ]) &&
+                         liveStreamExists(streamId) &&
+                         getLiveStream(streamId).data.status == 'live' &&
+                         incoming().streamHostId == getLiveStream(streamId).data.hostUserId &&
+                         incoming().streamVisibility == getLiveStream(streamId).data.visibility &&
+                         (getLiveStream(streamId).data.visibility == 'public' ||
+                          getLiveStream(streamId).data.hostUserId == request.auth.uid);
+
+        allow update: if false;
+
+        allow delete: if isSignedIn() &&
+                         isValidId(streamId) &&
+                         isValidId(messageId) &&
+                         (existing().senderId == request.auth.uid ||
+                          existing().streamHostId == request.auth.uid);
+      }
+    }
+  }
+}

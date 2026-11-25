@@ -20,6 +20,9 @@ interface ReelPulseDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVideo(video: VideoEntity)
 
+    @Query("UPDATE videos SET sharesCount = sharesCount + 1 WHERE id = :videoId")
+    suspend fun incrementShareCount(videoId: String)
+
     @Query("SELECT * FROM watch_history ORDER BY watchedAtMs DESC")
     fun observeWatchHistory(): Flow<List<WatchHistoryEntity>>
 

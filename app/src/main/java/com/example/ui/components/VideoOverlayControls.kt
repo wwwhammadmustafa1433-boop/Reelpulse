@@ -1,6 +1,8 @@
 package com.example.ui.components
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
@@ -58,16 +61,24 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.data.local.VideoEntity
 import com.example.recommendation.ScoredVideo
 import com.example.ui.theme.PulseCrimson
 import com.example.ui.theme.PulseCyan
 import com.example.ui.theme.PulseEmerald
 import com.example.ui.theme.PulseObsidian
+import com.example.ui.theme.PulseSurface
+import com.example.ui.theme.PulseSurfaceCard
+import com.example.ui.theme.PulseSurfaceElevated
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -78,12 +89,16 @@ fun VideoOverlayControls(
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onSaveClick: () -> Unit,
+    onShareClick: () -> Unit = {},
     onFollowClick: () -> Unit,
+    onCreatorClick: (VideoEntity) -> Unit = {},
     onExplainRecommendationClick: () -> Unit,
     onTagClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val hapticFeedback = LocalHapticFeedback.current
     val video = scoredVideo.video
 
     val likeScale by animateFloatAsState(
@@ -158,16 +173,26 @@ fun VideoOverlayControls(
                 contentDescription = "Like video",
                 iconScale = likeScale,
                 testTag = "like_button",
-                onClick = onLikeClick
+                onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLikeClick()
+                }
             )
 
             ActionRailButton(
                 icon = if (scoredVideo.totalCommentsCount > 0) Icons.Filled.ChatBubble else Icons.Outlined.ChatBubbleOutline,
-                label = formatCompactCount(scoredVideo.totalCommentsCount),
+                label = if (scoredVideo.totalCommentsCount > 0) {
+                    formatCompactCount(scoredVideo.totalCommentsCount)
+                } else {
+                    "Comment"
+                },
                 tint = Color.White,
                 contentDescription = "Open comments",
                 testTag = "comment_button",
-                onClick = onCommentClick
+                onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onCommentClick()
+                }
             )
 
             ActionRailButton(
@@ -181,19 +206,37 @@ fun VideoOverlayControls(
 
             ActionRailButton(
                 icon = Icons.Filled.Share,
-                label = formatCompactCount(video.sharesCount),
+                label = if (video.sharesCount > 0) formatCompactCount(video.sharesCount) else "Share",
                 tint = Color.White,
                 contentDescription = "Share video",
                 testTag = "share_button",
                 onClick = {
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(
-                            Intent.EXTRA_TEXT,
-                            "Watch \"${video.title}\" by ${video.creatorHandle} on ReelPulse! ${video.tagsCsv}"
-                        )
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    val shareLink = "https://reelpulse.app/watch/${video.id}"
+                    val shareText = buildString {
+                        append("Watch \"${video.title}\" by ${video.creatorHandle} on ReelPulse\n")
+                        append(shareLink)
+                        if (video.tagsCsv.isNotBlank()) {
+                            append("\n${video.tagsCsv}")
+                        }
                     }
-                    context.startActivity(Intent.createChooser(shareIntent, "Share Short"))
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "${video.title} — ${video.creatorHandle}")
+                        putExtra(Intent.EXTRA_TITLE, "${video.title} on ReelPulse")
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                    }
+                    val chooserIntent = Intent.createChooser(sendIntent, "Share Short").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    try {
+                        context.startActivity(chooserIntent)
+                        onShareClick()
+                    } catch (_: ActivityNotFoundException) {
+                        clipboardManager.setText(AnnotatedString(shareLink))
+                        Toast.makeText(context, "Video link copied to clipboard", Toast.LENGTH_SHORT).show()
+                        onShareClick()
+                    }
                 }
             )
 
@@ -220,7 +263,7 @@ fun VideoOverlayControls(
                     .clip(CircleShape)
                     .background(
                         Brush.sweepGradient(
-                            listOf(Color(0xFF1F2437), Color(0xFF3A415E), Color(0xFF13151F), Color(0xFF3A415E))
+                            listOf(PulseSurfaceElevated, PulseSurfaceCard, PulseSurface, PulseSurfaceCard)
                         )
                     )
                     .border(2.dp, Color.White.copy(alpha = 0.35f), CircleShape),
@@ -287,12 +330,29 @@ fun VideoOverlayControls(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = video.creatorHandle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onCreatorClick(video) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .testTag("creator_profile_link")
+                ) {
+                    Text(
+                        text = video.creatorHandle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "View creator profile",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color.White.copy(alpha = 0.16f)

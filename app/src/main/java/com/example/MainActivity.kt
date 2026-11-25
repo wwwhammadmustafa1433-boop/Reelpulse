@@ -1,5 +1,6 @@
 package com.example
 
+import android.app.Application
 import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -40,17 +41,25 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -59,11 +68,22 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+import com.example.ai.configureAppCheck
+import com.example.ui.auth.AuthFlowHost
+import com.example.ui.auth.PendingSignUpProfile
+import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.signOut
 import com.example.ui.navigation.AppRoute
 import com.example.ui.screens.AlgorithmLabScreen
+import com.example.ui.screens.CameraCaptureScreen
 import com.example.ui.screens.CreateScreen
+import com.example.ui.screens.CreatorProfileScreen
 import com.example.ui.screens.DiscoverScreen
 import com.example.ui.screens.FeedScreen
+import com.example.ui.screens.GeminiChatScreen
+import com.example.ui.screens.LiveScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.theme.PulseCrimson
 import com.example.ui.theme.PulseCyan
@@ -72,19 +92,73 @@ import com.example.ui.theme.PulseSurface
 import com.example.ui.theme.PulseTextPrimary
 import com.example.ui.theme.PulseTextSecondary
 import com.example.ui.theme.ReelPulseTheme
+import com.example.ui.viewmodel.GeminiChatViewModel
+import com.example.ui.viewmodel.LiveStreamViewModel
 import com.example.ui.viewmodel.ReelPulseViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureAppCheck(this, intent)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         )
         setContent {
             ReelPulseTheme {
-                ReelPulseApp()
+                AppNavigation()
             }
+        }
+    }
+}
+
+@Composable
+fun AppNavigation(auth: FirebaseAuth = Firebase.auth) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+    var pendingSignUp by remember { mutableStateOf<PendingSignUpProfile?>(null) }
+
+    LaunchedEffect(Unit) {
+        if (auth.currentUser == null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = {},
+                onUnauthenticated = {},
+                scope = scope
+            )
+        }
+    }
+
+    val user = currentUser
+    if (user == null) {
+        AuthFlowHost(
+            onSignUpPrepared = { pending -> pendingSignUp = pending },
+            onAuthSuccess = {}
+        )
+    } else {
+        key(user.uid) {
+            val viewModel: ReelPulseViewModel = viewModel(
+                key = user.uid,
+                factory = ReelPulseViewModel.provideFactory(
+                    currentUserId = user.uid,
+                    pendingSignUp = pendingSignUp
+                )
+            )
+            ReelPulseAuthenticatedApp(
+                currentUserId = user.uid,
+                viewModel = viewModel,
+                onLogout = {
+                    pendingSignUp = null
+                    signOut(credentialManager = credentialManager, scope = scope)
+                }
+            )
         }
     }
 }
@@ -138,9 +212,12 @@ private val navItems = listOf(
 )
 
 @Composable
-fun ReelPulseApp(
-    viewModel: ReelPulseViewModel = viewModel(factory = ReelPulseViewModel.Factory)
+fun ReelPulseAuthenticatedApp(
+    currentUserId: String,
+    viewModel: ReelPulseViewModel,
+    onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val activeComments by viewModel.activeComments.collectAsStateWithLifecycle()
@@ -162,13 +239,17 @@ fun ReelPulseApp(
             .fillMaxSize()
             .background(PulseObsidian)
     ) {
-        val useNavigationRail = maxWidth >= 600.dp
+        val isFullScreenOverlay = currentDestination?.hasRoute<AppRoute.Camera>() == true ||
+            currentDestination?.hasRoute<AppRoute.GeminiChat>() == true ||
+            currentDestination?.hasRoute<AppRoute.Live>() == true ||
+            currentDestination?.hasRoute<AppRoute.CreatorProfile>() == true
+        val useNavigationRail = maxWidth >= 600.dp && !isFullScreenOverlay
 
         Scaffold(
             containerColor = PulseObsidian,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                if (!useNavigationRail) {
+                if (!useNavigationRail && !isFullScreenOverlay) {
                     NavigationBar(
                         containerColor = PulseObsidian.copy(alpha = 0.96f),
                         contentColor = PulseTextPrimary,
@@ -273,12 +354,38 @@ fun ReelPulseApp(
                             viewModel = viewModel,
                             onNavigateToDiscover = { tag ->
                                 if (tag != null) {
-                                    viewModel.updateSearchQuery(tag)
+                                    viewModel.openDiscoverWithTag(tag)
                                 }
                                 navigateTopLevel(AppRoute.Discover)
                             },
                             onNavigateToAlgorithmLab = {
                                 navigateTopLevel(AppRoute.Algorithm)
+                            },
+                            onOpenGeminiChat = {
+                                navController.navigate(AppRoute.GeminiChat) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onOpenLive = {
+                                navController.navigate(AppRoute.Live(startInBroadcastSetup = false)) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onOpenCreatorProfile = { video ->
+                                if (video.isUserCreated || video.creatorId == "local_user") {
+                                    navigateTopLevel(AppRoute.Profile)
+                                } else {
+                                    navController.navigate(
+                                        AppRoute.CreatorProfile(
+                                            creatorId = video.creatorId,
+                                            creatorName = video.creatorName,
+                                            creatorHandle = video.creatorHandle,
+                                            creatorAvatarKey = video.creatorAvatarKey
+                                        )
+                                    ) {
+                                        launchSingleTop = true
+                                    }
+                                }
                             }
                         )
                     }
@@ -288,25 +395,114 @@ fun ReelPulseApp(
                             uiState = uiState,
                             onSearchChange = viewModel::updateSearchQuery,
                             onCategorySelect = viewModel::selectCategoryFilter,
+                            onTrendingTagSelect = viewModel::selectTrendingTag,
                             onVideoClick = { videoId ->
                                 viewModel.requestJumpToVideo(videoId)
                                 navigateTopLevel(AppRoute.Feed)
+                            },
+                            onCreatorClick = { creator ->
+                                navController.navigate(
+                                    AppRoute.CreatorProfile(
+                                        creatorId = creator.creatorId,
+                                        creatorName = creator.creatorName,
+                                        creatorHandle = creator.creatorHandle,
+                                        creatorAvatarKey = creator.creatorAvatarKey
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onCreateWithTag = { tag ->
+                                viewModel.prepareDraftWithTrendingTag(tag)
+                                navigateTopLevel(AppRoute.Create)
+                            },
+                            onOpenGeminiChat = {
+                                navController.navigate(AppRoute.GeminiChat) {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
 
                     composable<AppRoute.Create> {
+                        val draft = uiState.createDraft
                         CreateScreen(
-                            onPublish = { title, caption, category, tagsCsv, soundTitle, videoUrl ->
-                                viewModel.publishVideo(
+                            draftVideoUri = draft.videoUri,
+                            draftFilterPreset = draft.filterPreset,
+                            draftSourceType = draft.sourceType,
+                            draftTagsCsv = draft.tagsCsv,
+                            trendingTopics = uiState.trendingTopics,
+                            accountVisibility = uiState.accountVisibility,
+                            isPublishing = draft.isPublishing,
+                            publishError = draft.publishError,
+                            onOpenCamera = {
+                                navController.navigate(AppRoute.Camera) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onGoLive = {
+                                navController.navigate(
+                                    AppRoute.Live(
+                                        startInBroadcastSetup = true,
+                                        initialFilterId = draft.filterPreset.id
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onGalleryVideoPicked = { uri ->
+                                viewModel.setDraftGalleryVideo(uri.toString())
+                            },
+                            onUseSampleClip = viewModel::setDraftSampleVideo,
+                            onClearVideo = viewModel::clearDraftVideo,
+                            onFilterSelected = viewModel::setDraftFilter,
+                            onTagsChange = viewModel::setDraftTags,
+                            onToggleTrendingTag = viewModel::toggleDraftTrendingTag,
+                            onPublish = { title, caption, category, tagsCsv, soundTitle ->
+                                viewModel.publishDraftVideo(
                                     title = title,
                                     caption = caption,
                                     category = category,
                                     tagsCsv = tagsCsv,
                                     soundTitle = soundTitle,
-                                    videoUrl = videoUrl,
                                     onComplete = { navigateTopLevel(AppRoute.Feed) }
                                 )
+                            },
+                            onDismissPublishError = viewModel::dismissPublishError
+                        )
+                    }
+
+                    composable<AppRoute.Camera> {
+                        CameraCaptureScreen(
+                            initialFilter = uiState.createDraft.filterPreset,
+                            onVideoRecorded = { videoUri, filterPreset, durationMs ->
+                                viewModel.setDraftRecordedVideo(
+                                    videoUri = videoUri,
+                                    filterPreset = filterPreset,
+                                    durationMs = durationMs
+                                )
+                                navController.popBackStack()
+                            },
+                            onGallerySelected = { uri, filterPreset ->
+                                viewModel.setDraftGalleryVideo(
+                                    videoUri = uri.toString(),
+                                    filterPreset = filterPreset
+                                )
+                                navController.popBackStack()
+                            },
+                            onSwitchToLive = { filterPreset ->
+                                navController.navigate(
+                                    AppRoute.Live(
+                                        startInBroadcastSetup = true,
+                                        initialFilterId = filterPreset.id
+                                    )
+                                ) {
+                                    popUpTo<AppRoute.Camera> { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            onClose = {
+                                navController.popBackStack()
                             }
                         )
                     }
@@ -315,7 +511,12 @@ fun ReelPulseApp(
                         AlgorithmLabScreen(
                             uiState = uiState,
                             onExplorationRateChange = viewModel::setExplorationRate,
-                            onResetSignals = viewModel::resetPersonalizationSignals
+                            onResetSignals = viewModel::resetPersonalizationSignals,
+                            onOpenGeminiChat = {
+                                navController.navigate(AppRoute.GeminiChat) {
+                                    launchSingleTop = true
+                                }
+                            }
                         )
                     }
 
@@ -323,13 +524,140 @@ fun ReelPulseApp(
                         ProfileScreen(
                             uiState = uiState,
                             onEditProfile = viewModel::updateProfile,
+                            onAccountVisibilityChange = viewModel::updateAccountVisibility,
                             onVideoClick = { videoId ->
                                 viewModel.requestJumpToVideo(videoId)
                                 navigateTopLevel(AppRoute.Feed)
                             },
                             onCreateClick = {
                                 navigateTopLevel(AppRoute.Create)
-                            }
+                            },
+                            onBlockUser = { creator ->
+                                viewModel.blockUser(
+                                    creatorId = creator.creatorId,
+                                    creatorName = creator.creatorName,
+                                    creatorHandle = creator.creatorHandle,
+                                    creatorAvatarKey = creator.creatorAvatarKey
+                                )
+                            },
+                            onUnblockUser = viewModel::unblockUser,
+                            onOpenCreatorProfile = { creator ->
+                                navController.navigate(
+                                    AppRoute.CreatorProfile(
+                                        creatorId = creator.creatorId,
+                                        creatorName = creator.creatorName,
+                                        creatorHandle = creator.creatorHandle,
+                                        creatorAvatarKey = creator.creatorAvatarKey
+                                    )
+                                ) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onLogoutClick = onLogout,
+                            onDismissError = viewModel::dismissAccountError
+                        )
+                    }
+
+                    composable<AppRoute.GeminiChat> {
+                        val geminiViewModel: GeminiChatViewModel = viewModel()
+                        val chatState by geminiViewModel.screenState.collectAsStateWithLifecycle()
+                        GeminiChatScreen(
+                            state = chatState,
+                            onSendMessage = geminiViewModel::sendMessage,
+                            onRetry = geminiViewModel::retryLastPrompt,
+                            onDismissError = geminiViewModel::dismissError,
+                            onNewChat = geminiViewModel::startNewChat,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable<AppRoute.Live> { entry ->
+                        val liveArgs = entry.toRoute<AppRoute.Live>()
+                        val app = context.applicationContext as Application
+                        val liveViewModel: LiveStreamViewModel = viewModel(
+                            key = "${currentUserId}_${liveArgs.startInBroadcastSetup}_${liveArgs.initialFilterId}",
+                            factory = LiveStreamViewModel.provideFactory(
+                                application = app,
+                                currentUserId = currentUserId,
+                                initialStartInSetup = liveArgs.startInBroadcastSetup,
+                                initialFilterId = liveArgs.initialFilterId
+                            )
+                        )
+                        val liveState by liveViewModel.uiState.collectAsStateWithLifecycle()
+                        LiveScreen(
+                            uiState = liveState,
+                            userDisplayName = uiState.userProfile.displayName,
+                            userHandle = uiState.userProfile.handle,
+                            accountVisibility = uiState.accountVisibility,
+                            onOpenGoLiveSetup = liveViewModel::openGoLiveSetup,
+                            onOpenHub = liveViewModel::openHub,
+                            onUpdateDraftTitle = liveViewModel::updateDraftTitle,
+                            onUpdateDraftCategory = liveViewModel::updateDraftCategory,
+                            onSelectFilter = liveViewModel::selectFilter,
+                            onStartBroadcast = {
+                                liveViewModel.startBroadcast(
+                                    hostName = uiState.userProfile.displayName,
+                                    hostHandle = uiState.userProfile.handle,
+                                    visibility = uiState.accountVisibility
+                                )
+                            },
+                            onJoinStream = liveViewModel::joinStreamAsViewer,
+                            onEndOrLeaveStream = {
+                                liveViewModel.endOrLeaveStream(
+                                    onExitToPrevious = { navController.popBackStack() }
+                                )
+                            },
+                            onSendChatMessage = { text ->
+                                liveViewModel.sendChatMessage(
+                                    senderName = uiState.userProfile.displayName,
+                                    senderHandle = uiState.userProfile.handle,
+                                    text = text
+                                )
+                            },
+                            onSendHeartReaction = liveViewModel::sendHeartReaction,
+                            onDismissError = liveViewModel::dismissError,
+                            onClose = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable<AppRoute.CreatorProfile> { entry ->
+                        val args = entry.toRoute<AppRoute.CreatorProfile>()
+                        val creatorVideos = uiState.allScoredVideos.filter {
+                            it.video.creatorId == args.creatorId
+                        }
+                        CreatorProfileScreen(
+                            creatorId = args.creatorId,
+                            creatorName = args.creatorName,
+                            creatorHandle = args.creatorHandle,
+                            creatorAvatarKey = args.creatorAvatarKey,
+                            creatorVideos = creatorVideos,
+                            isFollowing = args.creatorId in uiState.followedCreatorIds,
+                            isBlocked = args.creatorId in uiState.blockedCreatorIds,
+                            isUpdatingBlock = uiState.isUpdatingBlockState,
+                            errorMessage = uiState.accountErrorMessage,
+                            onBack = { navController.popBackStack() },
+                            onToggleFollow = {
+                                viewModel.toggleFollowCreator(
+                                    creatorId = args.creatorId,
+                                    creatorName = args.creatorName
+                                )
+                            },
+                            onBlockUser = {
+                                viewModel.blockUser(
+                                    creatorId = args.creatorId,
+                                    creatorName = args.creatorName,
+                                    creatorHandle = args.creatorHandle,
+                                    creatorAvatarKey = args.creatorAvatarKey
+                                )
+                            },
+                            onUnblockUser = {
+                                viewModel.unblockUser(args.creatorId)
+                            },
+                            onVideoClick = { videoId ->
+                                viewModel.requestJumpToVideo(videoId)
+                                navigateTopLevel(AppRoute.Feed)
+                            },
+                            onDismissError = viewModel::dismissAccountError
                         )
                     }
                 }
