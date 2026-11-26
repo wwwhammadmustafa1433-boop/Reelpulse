@@ -33,15 +33,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
@@ -59,6 +64,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -136,6 +143,9 @@ fun CreateScreen(
     var selectedCategory by remember { mutableStateOf("Tech") }
     var soundTitle by remember { mutableStateOf("Original Studio Sound") }
     var validationMessage by remember { mutableStateOf<String?>(null) }
+    var isPreviewMuted by remember { mutableStateOf(true) }
+    var isPreviewPaused by remember { mutableStateOf(false) }
+    var compareOriginal by remember { mutableStateOf(false) }
 
     val activeTags = remember(draftTagsCsv) {
         draftTagsCsv.split(",", " ")
@@ -263,23 +273,53 @@ fun CreateScreen(
             ) {
                 val previewUrl = draftVideoUri
                 if (previewUrl != null) {
-                    val previewPlayer = remember(previewUrl, draftFilterPreset) {
+                    val effectivePreviewFilter = if (compareOriginal) {
+                        CameraFilterPreset.NORMAL
+                    } else {
+                        draftFilterPreset
+                    }
+                    val previewPlayer = remember(previewUrl) {
                         ExoPlayer.Builder(context).build().apply {
                             repeatMode = Player.REPEAT_MODE_ONE
-                            volume = 0f
-                            val effects = draftFilterPreset.toMedia3Effects()
+                            volume = if (isPreviewMuted) 0f else 1f
+                            val effects = effectivePreviewFilter.toMedia3Effects()
                             if (effects.isNotEmpty()) {
                                 setVideoEffects(effects)
                             }
                             setMediaItem(MediaItem.fromUri(previewUrl))
                             prepare()
-                            playWhenReady = true
+                            playWhenReady = !isPreviewPaused
                         }
+                    }
+                    var lastAppliedFilter by remember(previewPlayer) {
+                        mutableStateOf(effectivePreviewFilter)
+                    }
+                    LaunchedEffect(previewPlayer, effectivePreviewFilter) {
+                        if (effectivePreviewFilter != lastAppliedFilter) {
+                            lastAppliedFilter = effectivePreviewFilter
+                            val resumePosition = previewPlayer.currentPosition.coerceAtLeast(0L)
+                            previewPlayer.setVideoEffects(effectivePreviewFilter.toMedia3Effects())
+                            previewPlayer.prepare()
+                            if (resumePosition > 0L) {
+                                previewPlayer.seekTo(resumePosition)
+                            }
+                            previewPlayer.playWhenReady = !isPreviewPaused
+                        }
+                    }
+                    LaunchedEffect(previewPlayer, isPreviewMuted) {
+                        previewPlayer.volume = if (isPreviewMuted) 0f else 1f
+                    }
+                    LaunchedEffect(previewPlayer, isPreviewPaused) {
+                        previewPlayer.playWhenReady = !isPreviewPaused
                     }
                     DisposableEffect(previewPlayer) {
                         onDispose { previewPlayer.release() }
                     }
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { isPreviewPaused = !isPreviewPaused }
+                    ) {
                         ContentFrame(
                             player = previewPlayer,
                             modifier = Modifier
@@ -289,21 +329,21 @@ fun CreateScreen(
                             contentScale = ContentScale.Crop
                         )
 
-                        draftFilterPreset.tintOverlayColor?.let { tint ->
+                        effectivePreviewFilter.tintOverlayColor?.let { tint ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .background(tint)
                             )
                         }
-                        draftFilterPreset.vignetteBrush()?.let { vignette ->
+                        effectivePreviewFilter.vignetteBrush()?.let { vignette ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .background(vignette)
                             )
                         }
-                        if (draftFilterPreset.hasScanlines) {
+                        if (effectivePreviewFilter.hasScanlines) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 val step = 6.dp.toPx()
                                 var y = 0f
@@ -316,6 +356,24 @@ fun CreateScreen(
                                     )
                                     y += step
                                 }
+                            }
+                        }
+
+                        if (isPreviewPaused) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Resume preview",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(30.dp)
+                                )
                             }
                         }
 
@@ -344,36 +402,113 @@ fun CreateScreen(
                             if (draftFilterPreset != CameraFilterPreset.NORMAL) {
                                 Surface(
                                     shape = RoundedCornerShape(50),
-                                    color = PulseCyan.copy(alpha = 0.22f)
+                                    color = if (compareOriginal) {
+                                        Color.Black.copy(alpha = 0.72f)
+                                    } else {
+                                        PulseCyan.copy(alpha = 0.24f)
+                                    }
                                 ) {
                                     Text(
-                                        text = "Filter: ${draftFilterPreset.displayName}",
+                                        text = if (compareOriginal) {
+                                            "Original"
+                                        } else {
+                                            "Filter: ${draftFilterPreset.displayName}"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = PulseCyan,
+                                        color = if (compareOriginal) Color.White else PulseCyan,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                     )
                                 }
                             }
                         }
-                        // Clear selected video button
-                        Surface(
-                            onClick = onClearVideo,
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.65f),
+
+                        // Preview quick controls: Compare Original, Mute/Unmute, Clear Video
+                        Row(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(10.dp)
-                                .size(36.dp)
-                                .testTag("clear_draft_video_button")
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "Remove selected video",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            if (draftFilterPreset != CameraFilterPreset.NORMAL) {
+                                Surface(
+                                    onClick = { compareOriginal = !compareOriginal },
+                                    shape = RoundedCornerShape(50),
+                                    color = if (compareOriginal) {
+                                        PulseCyan.copy(alpha = 0.25f)
+                                    } else {
+                                        Color.Black.copy(alpha = 0.65f)
+                                    },
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .border(
+                                            1.dp,
+                                            if (compareOriginal) PulseCyan else Color.Transparent,
+                                            RoundedCornerShape(50)
+                                        )
+                                        .testTag("compare_original_filter_button")
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Compare,
+                                            contentDescription = "Compare original video",
+                                            tint = if (compareOriginal) PulseCyan else Color.White,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = if (compareOriginal) "Filtered" else "Original",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (compareOriginal) PulseCyan else Color.White,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                            Surface(
+                                onClick = { isPreviewMuted = !isPreviewMuted },
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("preview_mute_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isPreviewMuted) {
+                                            Icons.AutoMirrored.Filled.VolumeOff
+                                        } else {
+                                            Icons.AutoMirrored.Filled.VolumeUp
+                                        },
+                                        contentDescription = if (isPreviewMuted) "Unmute preview" else "Mute preview",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                onClick = {
+                                    compareOriginal = false
+                                    onClearVideo()
+                                },
+                                shape = CircleShape,
+                                color = Color.Black.copy(alpha = 0.65f),
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("clear_draft_video_button")
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Remove selected video",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -516,55 +651,149 @@ fun CreateScreen(
                 }
             }
 
-            // Filter Picker Strip (works on both Camera and Gallery previews)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Real-Time Video Filter Picker Strip (works on both Camera and Gallery previews)
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("create_filter_strip")
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        tint = PulseCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Video Filter (${draftFilterPreset.displayName})",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = PulseTextPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.AutoAwesome,
+                            contentDescription = null,
+                            tint = PulseCyan,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Real-Time Video Filters",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PulseTextPrimary
+                            )
+                            Text(
+                                text = "${draftFilterPreset.displayName} • ${draftFilterPreset.tagline}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (draftFilterPreset == CameraFilterPreset.NORMAL) {
+                                    PulseTextSecondary
+                                } else {
+                                    PulseCyan
+                                }
+                            )
+                        }
+                    }
+                    if (draftFilterPreset != CameraFilterPreset.NORMAL) {
+                        Surface(
+                            onClick = {
+                                compareOriginal = false
+                                onFilterSelected(CameraFilterPreset.NORMAL)
+                            },
+                            shape = RoundedCornerShape(50),
+                            color = PulseSurfaceElevated,
+                            modifier = Modifier
+                                .border(1.dp, PulseOutline, RoundedCornerShape(50))
+                                .testTag("reset_video_filter_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Refresh,
+                                    contentDescription = "Reset filter",
+                                    tint = PulseTextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = "Reset",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PulseTextSecondary
+                                )
+                            }
+                        }
+                    }
                 }
+
                 LazyRow(
                     contentPadding = PaddingValues(vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(CameraFilterPreset.entries, key = { it.id }) { preset ->
                         val selected = preset == draftFilterPreset
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        Surface(
+                            onClick = {
+                                compareOriginal = false
+                                onFilterSelected(preset)
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (selected) PulseCyan.copy(alpha = 0.16f) else PulseSurfaceElevated,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onFilterSelected(preset) }
-                                .padding(4.dp)
+                                .border(
+                                    width = if (selected) 1.5.dp else 1.dp,
+                                    color = if (selected) PulseCyan else PulseOutline,
+                                    shape = RoundedCornerShape(14.dp)
+                                )
                                 .testTag("create_filter_${preset.id}")
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Brush.linearGradient(preset.swatchColors))
-                                    .border(
-                                        width = if (selected) 2.5.dp else 1.dp,
-                                        color = if (selected) PulseCyan else PulseOutline,
-                                        shape = CircleShape
-                                    )
-                            )
-                            Text(
-                                text = preset.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (selected) PulseCyan else PulseTextSecondary
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 56.dp, height = 42.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Brush.linearGradient(preset.swatchColors))
+                                        .border(
+                                            width = 1.dp,
+                                            color = Color.White.copy(alpha = if (selected) 0.7f else 0.18f),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    preset.vignetteBrush()?.let { vignette ->
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(vignette)
+                                        )
+                                    }
+                                    if (selected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clip(CircleShape)
+                                                .background(PulseObsidian.copy(alpha = 0.78f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Check,
+                                                contentDescription = "Selected",
+                                                tint = PulseCyan,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = preset.displayName,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) PulseCyan else PulseTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
